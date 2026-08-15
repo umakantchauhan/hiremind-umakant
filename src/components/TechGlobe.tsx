@@ -3,6 +3,16 @@
 
 import { useEffect, useRef } from "react";
 
+// Canvas 2D does NOT support CSS custom properties (var()).
+// We must resolve the CSS variable to an actual color string at draw time.
+function getPrimaryColor(): string {
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue("--primary")
+    .trim();
+  // raw is e.g. "0 0% 9%" — wrap it into a valid hsl() string
+  return raw ? `hsl(${raw})` : "#000";
+}
+
 export default function TechGlobe() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -15,6 +25,16 @@ export default function TechGlobe() {
     let width = (canvas.width = canvas.offsetWidth);
     let height = (canvas.height = canvas.offsetHeight);
     let particles: Particle[] = [];
+    let primaryColor = getPrimaryColor();
+
+    // Re-read the color if the theme class changes (dark ↔ light toggle)
+    const observer = new MutationObserver(() => {
+      primaryColor = getPrimaryColor();
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
 
     class Particle {
       x: number;
@@ -37,17 +57,17 @@ export default function TechGlobe() {
 
         if (this.size > 0.2) this.size -= 0.03;
         if (this.size <= 0.2) {
-            this.x = Math.random() * width;
-            this.y = Math.random() * height;
-            this.size = Math.random() * 3 + 1;
-            this.speedX = Math.random() * 2 - 1;
-            this.speedY = Math.random() * 2 - 1;
+          this.x = Math.random() * width;
+          this.y = Math.random() * height;
+          this.size = Math.random() * 3 + 1;
+          this.speedX = Math.random() * 2 - 1;
+          this.speedY = Math.random() * 2 - 1;
         }
       }
 
       draw() {
         if (!ctx) return;
-        ctx.fillStyle = "hsl(var(--primary))";
+        ctx.fillStyle = primaryColor; // ✅ resolved CSS value, not var()
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
         ctx.fill();
@@ -61,6 +81,8 @@ export default function TechGlobe() {
       }
     }
 
+    let animFrameId: number;
+
     function animate() {
       if (!ctx) return;
       ctx.clearRect(0, 0, width, height);
@@ -69,38 +91,41 @@ export default function TechGlobe() {
         particles[i].update();
         particles[i].draw();
       }
-      
+
       for (let i = 0; i < particles.length; i++) {
         for (let j = i; j < particles.length; j++) {
-            const dx = particles[i].x - particles[j].x;
-            const dy = particles[i].y - particles[j].y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
 
-            if (distance < 100) {
-                ctx.beginPath();
-                ctx.strokeStyle = "hsl(var(--primary))";
-                ctx.lineWidth = 0.2;
-                ctx.moveTo(particles[i].x, particles[i].y);
-                ctx.lineTo(particles[j].x, particles[j].y);
-                ctx.stroke();
-            }
+          if (distance < 100) {
+            ctx.beginPath();
+            ctx.strokeStyle = primaryColor; // ✅ resolved CSS value, not var()
+            ctx.lineWidth = 0.2;
+            ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.lineTo(particles[j].x, particles[j].y);
+            ctx.stroke();
+          }
         }
       }
-      requestAnimationFrame(animate);
+      animFrameId = requestAnimationFrame(animate);
     }
 
     const handleResize = () => {
-        width = canvas.width = canvas.offsetWidth;
-        height = canvas.height = canvas.offsetHeight;
-        init();
-    }
+      width = canvas.width = canvas.offsetWidth;
+      height = canvas.height = canvas.offsetHeight;
+      init();
+    };
 
     init();
     animate();
 
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      cancelAnimationFrame(animFrameId);
+      observer.disconnect();
+    };
   }, []);
 
   return <canvas ref={canvasRef} className="h-full w-full" />;
